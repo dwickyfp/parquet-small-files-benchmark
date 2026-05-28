@@ -10,7 +10,7 @@ I care about this because I work with pipelines where the problem is not always 
 
 That is where engine choice starts to matter. Not just in raw scan speed, but in how the engine handles repeated opens, metadata parsing, planning, and scheduling.
 
-## Permasalahan
+## Problem
 
 The question I wanted to answer was simple: **when there are many small Parquet files, which engine reads them faster?**
 
@@ -30,7 +30,7 @@ And if you benchmark engines in a way that rewards cached behavior too much, you
 
 What I wanted to avoid was another generic comparison. I wanted a benchmark that tried to measure the exact pain point that shows up in real pipelines: **repeated startup and open/plan overhead over many small files**.
 
-## Solusi
+## Solution
 
 My approach was to build a small reproducible benchmark focused only on that case.
 
@@ -47,13 +47,13 @@ I also decided to benchmark in a way that punishes repeated session setup, becau
 
 So the benchmark design intentionally favors the use case, not a single engine.
 
-## Implementasi
+## Implementation
 
 The harness is built in Python and published here:
 
 - https://github.com/dwickyfp/parquet-small-files-benchmark
 
-### what I tested
+### What I tested
 
 I compared:
 
@@ -67,7 +67,7 @@ The environment was:
 - 8 CPU cores
 - 16 GB RAM
 
-### dataset design
+### Dataset design
 
 The harness generates many small synthetic Parquet files with fixed randomness.
 
@@ -81,7 +81,7 @@ Scenarios included:
 
 The point was not to simulate a massive warehouse. The point was to stress file handling and scheduling overhead directly.
 
-### query design
+### Query design
 
 Each scenario ran these queries:
 
@@ -96,7 +96,7 @@ Those cover different pressure points:
 - filter-heavy work
 - lightweight aggregation work
 
-### fairness controls
+### Fairness controls
 
 This part mattered a lot to me.
 
@@ -112,16 +112,16 @@ The final metric is **median wall-clock time** from the measured runs.
 
 That design focuses the benchmark on the question I actually care about: **how painful is repeated open / plan / execute for many small files?**
 
-## Result + benchmark
+## Result + Benchmark
 
-### environment
+### Environment
 
 - macOS 26.5 ARM64
 - Python 3.12.8
 - DuckDB 1.5.3
 - DataFusion 53.0.0
 
-### median times in milliseconds
+### Median times in milliseconds
 
 | Scenario | Query | DuckDB | DataFusion |
 |---|---|---:|---:|
@@ -146,7 +146,7 @@ That design focuses the benchmark on the question I actually care about: **how p
 | 10000 files | agg_groupby | 358 | 272 |
 | 10000 files | count_distinct | 336 | 270 |
 
-### interpretation
+### Interpretation
 
 In this setup, **DataFusion was faster across every scenario**.
 
@@ -154,7 +154,7 @@ The most obvious wins showed up on queries where startup and planning behavior d
 
 The gap also widened as file count grew, which is exactly the pattern I expected from the small-file problem.
 
-### what this does not prove
+### What this does not prove
 
 This is still one benchmark, on one machine, with one set of file sizes and queries. I would not use it to make a universal claim about all workloads.
 
