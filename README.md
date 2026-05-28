@@ -17,17 +17,30 @@ See **[RESEARCH.md](./RESEARCH.md)** for the full deep-dive covering:
 ## Quick Start
 
 ```bash
-# 1. Install dependencies
+# 1. Create env with Python 3.10+ (recommended 3.12)
+python3.12 -m venv .venv
+source .venv/bin/activate
 pip install -r requirements.txt
 
-# 2. Generate test data (small Parquet files)
+# 2. Generate all test datasets
 python benchmark/generate_data.py
 
-# 3. Run the benchmark
+# 3. Run the full benchmark
 python benchmark/run_benchmark.py
 
 # 4. View results
-ls results/    # JSON + CSV output
+ls results/
+```
+
+### Fast Smoke Run (optional)
+If you only want a quick check:
+```bash
+# generate only 100-file and 1000-file scenarios
+python benchmark/generate_data.py 0
+python benchmark/generate_data.py 2
+
+# run the benchmark harness
+python benchmark/run_benchmark.py
 ```
 
 ## Benchmark Scenarios
@@ -48,8 +61,26 @@ Results are written to `results/`:
 
 ## Requirements
 
-- Python 3.9+
+- Python 3.10+ (3.12 recommended)
 - ~500MB disk for generated test data (clean up with `rm -rf data/`)
+
+## Latest Local Benchmark Snapshot
+
+This repo ships a reproducible harness, not a final verdict. One representative local run:
+
+- macOS 26.5 ARM64
+- Python 3.12.8
+- DuckDB 1.5.3
+- DataFusion 53.0.0
+
+In that run, **DataFusion was consistently faster than DuckDB** on the included small-file smoke scenarios:
+- 100 files
+- 500 files
+- 1000 files
+- 5000 files
+- 10000 files
+
+See `RESEARCH.md` for the full table and commentary.
 
 ## License
 

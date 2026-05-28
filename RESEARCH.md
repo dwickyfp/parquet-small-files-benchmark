@@ -114,6 +114,32 @@ At extreme file counts:
 - Compare engines under **repeatable local conditions**.
 - Keep the benchmark fair by isolating **file-open / plan / execution cost** on every measured run.
 
+### Latest Local Snapshot (2026-05-28)
+Environment: macOS 26.5 ARM64, Python 3.12.8, DuckDB 1.5.3, DataFusion 53.0.0.
+
+| Scenario | Query | DuckDB (median ms) | DataFusion (median ms) | Winner |
+|---|---|---:|---:|---|
+| 100 files | count_star | 3 | 1 | DataFusion |
+| 100 files | selective_filter | 4 | 2 | DataFusion |
+| 100 files | agg_groupby | 4 | 3 | DataFusion |
+| 100 files | count_distinct | 4 | 3 | DataFusion |
+| 500 files | count_star | 13 | 4 | DataFusion |
+| 500 files | selective_filter | 14 | 7 | DataFusion |
+| 500 files | agg_groupby | 16 | 12 | DataFusion |
+| 500 files | count_distinct | 15 | 12 | DataFusion |
+| 1000 files | count_star | 26 | 7 | DataFusion |
+| 1000 files | selective_filter | 28 | 13 | DataFusion |
+| 1000 files | agg_groupby | 31 | 21 | DataFusion |
+| 1000 files | count_distinct | 29 | 21 | DataFusion |
+| 5000 files | count_star | 135 | 36 | DataFusion |
+| 5000 files | selective_filter | 151 | 68 | DataFusion |
+| 5000 files | agg_groupby | 165 | 107 | DataFusion |
+| 5000 files | count_distinct | 153 | 108 | DataFusion |
+| 10000 files | count_star | 290 | 115 | DataFusion |
+| 10000 files | selective_filter | 326 | 182 | DataFusion |
+| 10000 files | agg_groupby | 358 | 272 | DataFusion |
+| 10000 files | count_distinct | 336 | 270 | DataFusion |
+
 ### Fairness Controls
 - Each measured run creates a **fresh engine session/connection**:
   - DuckDB: new in-memory connection + fresh view registration
