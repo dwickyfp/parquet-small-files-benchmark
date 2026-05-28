@@ -1,54 +1,77 @@
-# DataFusion 51 vs DuckDB: Who reads many small Parquet files faster?
+# DataFusion vs DuckDB: who reads many small Parquet files faster?
 
-I set out to answer a boring but practical question: when your data lake turns into thousands of tiny Parquet files, which engine handles it better — **Apache DataFusion** or **DuckDB**?
+## Background
 
-Short answer: in my local benchmark, **DataFusion won every test**.
+Most Parquet tutorials I see assume clean, medium-sized files. In real data work, that assumption breaks fast.
 
-Long answer: that result comes with context.
+Streaming ingestion creates files. Micro-batch ETL creates files. Export jobs and partitioned pipelines create files. If nobody cleans up, you end up with thousands of tiny Parquet files that still look fine on paper.
 
-## Why I ran this benchmark
+I care about this because I work with pipelines where the problem is not always query complexity. Sometimes the problem is just **file noise**: too many small outputs sitting in a lake, waiting to slow everything down.
 
-Most Parquet benchmarks I see online use a few big files. That is useful, but it does not match a lot of real workloads.
+That is where engine choice starts to matter. Not just in raw scan speed, but in how the engine handles repeated opens, metadata parsing, planning, and scheduling.
 
-Streaming ingestion, micro-batch ETL, partitioned exports, and event-style pipelines often create many small files. If you leave that alone long enough, you end up with a dataset that looks optimized on paper but is slow in practice.
+## Permasalahan
 
-So I wanted a benchmark focused on the **small-file problem** specifically.
+The question I wanted to answer was simple: **when there are many small Parquet files, which engine reads them faster?**
 
-## What I tested
+This matters because small files change where time is spent.
 
-I built a small reproducible harness and compared:
+With big files, the engine usually spends most time reading and processing data. With many small files, the overhead shifts toward:
+
+- opening files
+- reading metadata
+- registering tables
+- planning the query
+- scheduling work across partitions
+
+If you benchmark only large files, you can completely miss that.
+
+And if you benchmark engines in a way that rewards cached behavior too much, you also get a misleading picture. The small-file problem is often painful at the **first touch**, not just the fifth.
+
+What I wanted to avoid was another generic comparison. I wanted a benchmark that tried to measure the exact pain point that shows up in real pipelines: **repeated startup and open/plan overhead over many small files**.
+
+## Solusi
+
+My approach was to build a small reproducible benchmark focused only on that case.
+
+I did not try to build the most comprehensive database benchmark. I tried to build one that asked a narrow question clearly:
+
+- many small local Parquet files
+- different file counts
+- a few common query types
+- strict fairness rules
+
+The hypothesis was simple: if one engine is better at handling many small partitions cheaply, it should show up here.
+
+I also decided to benchmark in a way that punishes repeated session setup, because that is closer to the real-world pattern I care about. I did not want a benchmark that mainly measures the second or third warm run after the engine already knows everything about the table.
+
+So the benchmark design intentionally favors the use case, not a single engine.
+
+## Implementasi
+
+The harness is built in Python and published here:
+
+- https://github.com/dwickyfp/parquet-small-files-benchmark
+
+### what I tested
+
+I compared:
 
 - **DuckDB 1.5.3**
 - **DataFusion 53.0.0**
 
-On my machine, that was:
+The environment was:
 
 - macOS 26.5 ARM64
 - Python 3.12.8
 - 8 CPU cores
 - 16 GB RAM
 
-The harness generates synthetic Parquet files with repeatable random data, then runs the same queries across both engines.
+### dataset design
 
-## Benchmark design
+The harness generates many small synthetic Parquet files with fixed randomness.
 
-I did not want the benchmark to reward one engine for caching tricks or hidden state. So I made it deliberately strict.
-
-Each measured run:
-
-1. creates a fresh engine session
-2. registers the table/files
-3. times only the query execution
-
-Before the measured runs, the harness also does a few warmup executions.
-
-The primary metric is **median wall-clock time**.
-
-That design leans toward measuring **open + plan + execute** cost repeatedly, not just the second time a cached query runs. That is intentional, because the small-file problem is usually painful exactly at startup and scheduling time.
-
-## Scenarios
-
-I included five scenarios:
+Scenarios included:
 
 - 100 files
 - 500 files
@@ -56,30 +79,49 @@ I included five scenarios:
 - 5,000 files
 - 10,000 files
 
-Each scenario used small files, not large ones. That makes metadata and scheduling behavior matter a lot more than raw scan throughput.
+The point was not to simulate a massive warehouse. The point was to stress file handling and scheduling overhead directly.
 
-## Queries
+### query design
 
-Each scenario ran four queries:
+Each scenario ran these queries:
 
 - `SELECT COUNT(*)`
 - selective filter
 - simple aggregation
 - `COUNT(DISTINCT name)`
 
-Together, those cover a few common patterns: metadata-dominated queries, selective filters, and lightweight aggregations.
+Those cover different pressure points:
 
-## Results
+- metadata-dominated work
+- filter-heavy work
+- lightweight aggregation work
 
-Here is the local snapshot from one full run.
+### fairness controls
 
-**Environment**
+This part mattered a lot to me.
+
+I did not want one engine to benefit from hidden caching while the other paid full setup cost every time. So the harness does this on every measured run:
+
+- create a fresh engine session
+- register the table/files again
+- time the query execution
+
+Before the measured runs, there are also warmup executions.
+
+The final metric is **median wall-clock time** from the measured runs.
+
+That design focuses the benchmark on the question I actually care about: **how painful is repeated open / plan / execute for many small files?**
+
+## Result + benchmark
+
+### environment
+
 - macOS 26.5 ARM64
 - Python 3.12.8
 - DuckDB 1.5.3
 - DataFusion 53.0.0
 
-**Median times in milliseconds**
+### median times in milliseconds
 
 | Scenario | Query | DuckDB | DataFusion |
 |---|---|---:|---:|
@@ -104,87 +146,37 @@ Here is the local snapshot from one full run.
 | 10000 files | agg_groupby | 358 | 272 |
 | 10000 files | count_distinct | 336 | 270 |
 
-In this setup, **DataFusion was faster across the board**.
+### interpretation
 
-The biggest wins showed up on metadata-heavy and scheduling-heavy queries, especially `count_star`. That makes sense, because those queries stress everything around file handling rather than just data scanning.
+In this setup, **DataFusion was faster across every scenario**.
 
-## What surprised me
+The most obvious wins showed up on queries where startup and planning behavior dominate, especially `count_star`. That makes sense. Those queries expose everything around file handling: metadata, registration, planning, and scheduling.
 
-I expected DuckDB to do better on the very small scenarios. It did not.
+The gap also widened as file count grew, which is exactly the pattern I expected from the small-file problem.
 
-Even at 100 files, DataFusion was noticeably faster. That tells me the advantage here is probably not just about large scale. It is about overhead per file: registering files, parsing metadata, planning the query, and getting actual execution started.
+### what this does not prove
 
-That said, I want to be careful about generalizing. This benchmark is one harness, one set of file sizes, one OS, and one machine.
+This is still one benchmark, on one machine, with one set of file sizes and queries. I would not use it to make a universal claim about all workloads.
 
-## Why DataFusion likely won here
+It also does not test:
 
-A few things probably helped DataFusion in this benchmark.
+- persistent sessions
+- remote storage
+- joins across many files
+- big-file scan throughput
+- heavily tuned production setups
 
-First, the benchmark repeatedly exercises startup and planning behavior, not just cached repeated runs. If one engine is better at handling many small partitions cheaply, that shows up fast.
+So the result is meaningful, but narrow.
 
-Second, DataFusion is very Arrow-native. In workloads where execution is light but file handling is heavy, that matters.
+## Conclusion
 
-Third, this benchmark does not give DuckDB much room to show one of its biggest strengths: being an ergonomic, fast default for interactive querying over local files. DuckDB is still incredibly convenient.
+If your main problem is **many small Parquet files**, and you care about repeated open / plan / scan overhead, **DataFusion looked stronger than DuckDB in this benchmark**.
 
-## Where DuckDB is still strong
+If your main problem is quick local analytics with minimal setup, DuckDB is still a great tool. I would not pretend otherwise.
 
-I would not take this benchmark and conclude DuckDB is bad. That would be the wrong lesson.
+The practical takeaway is simple: pick the tool based on the actual pain point.
 
-DuckDB is still excellent for:
+If your pipeline keeps creating small files and your queries keep paying file-handling tax, that is where DataFusion is worth a serious look. If your workload is more about interactive exploration over local data, DuckDB still makes a lot of sense.
 
-- interactive analysis
-- quick exploration
-- SQL-first local workflows
-- mixed workloads with joins
-- people who want something simple and fast to set up
-
-If your workload is less about thousands of tiny files and more about querying local datasets in notebooks or scripts, DuckDB is still one of the best tools available.
-
-## What I would test next
-
-If I expand this benchmark, I would add a few more things:
-
-- **persistent sessions**, not just fresh sessions each time
-- **S3-backed files**, not only local filesystem
-- **mixed file sizes**
-- **more selective filters**
-- **joins across many small files**
-- **query-specific tuning per engine**
-
-That would give a fuller picture.
-
-## How to reproduce it
-
-The repo is here:
-
+The full repo and raw results are here:
 - https://github.com/dwickyfp/parquet-small-files-benchmark
-
-You can run:
-
-```bash
-python3.12 -m venv .venv
-source .venv/bin/activate
-pip install -r requirements.txt
-python benchmark/generate_data.py
-python benchmark/run_benchmark.py
-```
-
-If you want a faster smoke run, you can generate only the 100-file and 1000-file scenarios first.
-
-## Final take
-
-If your main pain point is **many small Parquet files**, and you care about repeated open/plan/scan overhead, **DataFusion looks like the stronger choice** in this test.
-
-If your main pain point is **fast local analytics with minimal setup**, **DuckDB is still excellent**.
-
-There is no single winner for every workload. But for this specific one, the result was not close.
-
-## Repo and raw results
-
-The benchmark harness and local results are in the GitHub repo:
-
-- https://github.com/dwickyfp/parquet-small-files-benchmark
-
-## One-line summary
-
-For many small Parquet files, **DataFusion was faster than DuckDB** in my local benchmark. But the right engine still depends on your workload, not just one test.
