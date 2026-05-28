@@ -1,4 +1,4 @@
 pyarrow>=14.0.0
 duckdb>=0.10.0
-datafusion>=0.6.0
+datafusion>=51.0.0,<54.0.0
 psutil>=5.9.0

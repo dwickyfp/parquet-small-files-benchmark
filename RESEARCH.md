@@ -111,8 +111,23 @@ At extreme file counts:
 
 ### Goals
 - Measure **wall-clock time** for common query patterns over many small Parquet files.
-- Compare first-run (cold) vs subsequent (warm) performance.
-- Test at multiple file counts: 100, 500, 1000, 5000, 10000.
+- Compare engines under **repeatable local conditions**.
+- Keep the benchmark fair by isolating **file-open / plan / execution cost** on every measured run.
+
+### Fairness Controls
+- Each measured run creates a **fresh engine session/connection**:
+  - DuckDB: new in-memory connection + fresh view registration
+  - DataFusion: new `SessionContext` + fresh `register_parquet`
+- Before measured runs, the harness runs **3 warmup executions**.
+- Measured runs are repeated **10 times** per query per scenario.
+- Median is reported as the primary statistic to reduce outlier impact.
+
+### Current Smoke Scenarios
+The repository currently ships fast smoke scenarios first:
+- `100 files x 100 rows`
+- `1000 files x 100 rows`
+
+These are intentionally designed to expose **open/plan-dominated overhead** differences rather than large scan throughput.
 
 ### Data Generation
 - Each file contains N rows of synthetic data (numeric + string columns).

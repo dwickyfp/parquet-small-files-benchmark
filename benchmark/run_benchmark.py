@@ -36,37 +36,48 @@ QUERIES = [
     ('count_distinct',    'SELECT COUNT(DISTINCT name) FROM t'),
 ]
 
-RUNS = 3
+RUNS = 10
+WARMUP_RUNS = 3
 
 
 # ── DuckDB runner ──
 
 def run_duckdb(scenario_dir: str, query_sql: str) -> list[float]:
-    con = duckdb.connect()
-    con.execute("SET enable_progress_bar = false")
     pattern = os.path.join(DATA_DIR, scenario_dir, '*.parquet')
-    # Register table
-    con.execute(f"CREATE VIEW t AS SELECT * FROM read_parquet('{pattern}')")
+    for _ in range(WARMUP_RUNS):
+        con = duckdb.connect()
+        con.execute("SET enable_progress_bar = false")
+        con.execute(f"CREATE VIEW t AS SELECT * FROM read_parquet('{pattern}')")
+        con.execute(query_sql).fetchall()
+        con.close()
     timings = []
     for _ in range(RUNS):
+        con = duckdb.connect()
+        con.execute("SET enable_progress_bar = false")
+        con.execute(f"CREATE VIEW t AS SELECT * FROM read_parquet('{pattern}')")
         t0 = time.perf_counter()
         con.execute(query_sql).fetchall()
         timings.append((time.perf_counter() - t0) * 1000)
-    con.close()
+        con.close()
     return timings
 
 
 # ── DataFusion runner ──
 
 def run_datafusion(scenario_dir: str, query_sql: str) -> list[float]:
-    ctx = SessionContext()
     data_path = os.path.join(DATA_DIR, scenario_dir)
-    # Register listing table
-    ctx.register_parquet('t', data_path,
-                          table_partition_cols=[],
-                          file_extension='.parquet')
+    for _ in range(WARMUP_RUNS):
+        ctx = SessionContext()
+        ctx.register_parquet('t', data_path,
+                              table_partition_cols=[],
+                              file_extension='.parquet')
+        ctx.sql(query_sql).collect()
     timings = []
     for _ in range(RUNS):
+        ctx = SessionContext()
+        ctx.register_parquet('t', data_path,
+                              table_partition_cols=[],
+                              file_extension='.parquet')
         t0 = time.perf_counter()
         result = ctx.sql(query_sql).collect()
         timings.append((time.perf_counter() - t0) * 1000)
